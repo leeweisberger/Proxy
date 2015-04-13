@@ -163,8 +163,8 @@ void parseResponse(char *message){
 
 }
 
-void parseRequest(char *message, int b_sock){
-	char *copy = strdup(message);
+char * getHostFromRequest(char *request){
+	char *copy = strdup(request);
 	//Move past get and a space
 	copy+=4;
 	copy = strstr(copy,"Host: ");
@@ -172,7 +172,6 @@ void parseRequest(char *message, int b_sock){
 	int i;
 	for(i=0; i<strlen(copy); i++){
 		if(copy[i]=='\n'){
-			printf("foud newline! at %d first letter is %c\n", i, copy[0]);
 			break;
 		}
 	}
@@ -180,7 +179,12 @@ void parseRequest(char *message, int b_sock){
 	char *url = (char*)malloc(i * sizeof(char));
 	strncpy(url, copy, i-1);
 	url[i-1]='\0';
-	printf("now is %s\n", url);
+	return url;
+}
+
+void parseRequest(char *message, int b_sock){
+	
+	char *url = getHostFromRequest(message);
 
 	//info is already in the cache
 	if(isInCache(url)==1){
