@@ -14,7 +14,7 @@
 #define d 1
 #define MAX_URL 2048
 #define MAX_HTTP_HEADER 8000
-#define MAX_HTTP_MESSAGE 80000
+#define MAX_HTTP_MESSAGE 800000
 #define MAX_HTTP_RESPONSE (MAX_HTTP_MESSAGE + MAX_HTTP_HEADER)
 #define MAX_HTTP_REQUEST MAX_HTTP_HEADER
 #define IP_LENGTH 32
@@ -71,12 +71,12 @@ int hostname_to_ip(char *hostname, char *ip)
     struct addrinfo hints, *servinfo, *p;
     struct sockaddr_in *h;
     int rv;
- 
+ 	printf("getting host info for %s\n", hostname);
     memset(&hints, 0, sizeof hints);
-    hints.ai_family = AF_UNSPEC; // use AF_INET6 to force IPv6
+    hints.ai_family = AF_INET; // use AF_INET6 to force IPv6
     hints.ai_socktype = SOCK_STREAM;
  
-    if ( (rv = getaddrinfo( hostname , "http" , &hints , &servinfo)) != 0) 
+    if ( (rv = getaddrinfo( hostname , NULL , &hints , &servinfo)) != 0) 
     {
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
         return 1;
@@ -167,13 +167,20 @@ void parseRequest(char *message, int b_sock){
 	char *copy = strdup(message);
 	//Move past get and a space
 	copy+=4;
-	char *url = strtok (copy," ");
-	url+=4;
-	if(*url == 's'){
-		url+=4;
+	copy = strstr(copy,"Host: ");
+	copy+=6;
+	int i;
+	for(i=0; i<strlen(copy); i++){
+		if(copy[i]=='\n'){
+			printf("foud newline! at %d first letter is %c\n", i, copy[0]);
+			break;
+		}
 	}
-	else{url+=3;}
-	*(url+strlen(url)-1)=0;
+
+	char *url = (char*)malloc(i * sizeof(char));
+	strncpy(url, copy, i-1);
+	url[i-1]='\0';
+	printf("now is %s\n", url);
 
 	//info is already in the cache
 	if(isInCache(url)==1){
