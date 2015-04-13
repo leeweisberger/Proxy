@@ -8,12 +8,13 @@
 #include <pthread.h>
 #include <netdb.h>
 #include <errno.h>
+#include <signal.h>
 
 
 #define d 1
 #define MAX_URL 2048
 #define MAX_HTTP_HEADER 8000
-#define MAX_HTTP_MESSAGE 8000
+#define MAX_HTTP_MESSAGE 80000
 #define MAX_HTTP_RESPONSE (MAX_HTTP_MESSAGE + MAX_HTTP_HEADER)
 #define MAX_HTTP_REQUEST MAX_HTTP_HEADER
 #define IP_LENGTH 32
@@ -58,7 +59,7 @@ int main(int argc, char ** argv){
 	}
 	cache = NULL;
 	// cache->next=NULL;
-
+	signal(SIGPIPE, SIG_IGN);
 	return listenOnPort(port);
 	return 0;
 }
@@ -103,23 +104,25 @@ int isInCache(char *url){
 	return 0;
 }
 
-void deliverResponse(char *message, int osock){
-	if (send(osock, message, strnlen(message, MAX_HTTP_RESPONSE), 0) < 0) {
+void deliverResponse(char *message, int b_sock){
+	if (send(b_sock, message, MAX_HTTP_RESPONSE, 0) < 0) {
 		perror("Send error:");
 		return 1;
 	}
 
 	printf("response Delivered\n");
+	
+	getData(b_sock);
 }
 
 
 
-void fetchContent(char *ip, char* message, int osock){
-	int sock;
+void fetchContent(char *ip, char* message, int b_sock){
+	int s_sock;
 	struct sockaddr_in server_addr;
 	char reply[MAX_HTTP_RESPONSE];
 	if(d==1)printf("fetching content from ip %s with message %s\n", ip, message);
-	if ((sock = socket(AF_INET, SOCK_STREAM/* use tcp */, 0)) < 0) {
+	if ((s_sock = socket(AF_INET, SOCK_STREAM/* use tcp */, 0)) < 0) {
 		perror("Create socket error:");
 		return;
 	}
@@ -129,24 +132,29 @@ void fetchContent(char *ip, char* message, int osock){
 	server_addr.sin_port = htons(80);
 
 
-	if (connect(sock, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
+	if (connect(s_sock, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
 		perror("Connect error:");
 		return;
 	}
 	printf("connected\n");
 
-	if (send(sock, message, MAX_HTTP_REQUEST, 0) < 0) {
+	if (send(s_sock, message, MAX_HTTP_REQUEST, 0) < 0) {
 			perror("Send error:");
 			return;
 		}
-		int recv_len = read(sock, reply, MAX_HTTP_RESPONSE);
+		int recv_len = read(s_sock, reply, MAX_HTTP_RESPONSE);
 		if (recv_len < 0) {
 			perror("Recv error:");
 			return;
 		}
-		reply[recv_len] = 0;
-		printf("Server reply:\n%s\n", reply, recv_len);
-		deliverResponse(reply, osock);
+		if(recv_len==0){
+			close(s_sock);
+			fetchContent(ip, message, b_sock);
+			return;
+		}
+		// reply[recv_len] = 0;
+		printf("Server reply %d:\n%s\n", recv_len, reply);
+		deliverResponse(reply, b_sock);
 		memset(reply, 0, sizeof(reply));
 
 }
@@ -155,7 +163,7 @@ void parseResponse(char *message){
 
 }
 
-void parseRequest(char *message, int osock){
+void parseRequest(char *message, int b_sock){
 	char *copy = strdup(message);
 	//Move past get and a space
 	copy+=4;
@@ -175,18 +183,18 @@ void parseRequest(char *message, int osock){
 	else{
 		char ip[IP_LENGTH];
 		hostname_to_ip(url, ip);
-		fetchContent(ip, message, osock);
+		fetchContent(ip, message, b_sock);
 	}
 
 
 }
 
-void parseMessage(char *message, int osock){
+void parseMessage(char *message, int b_sock){
 	// struct cache_object *cob = (struct cache_object*)malloc(sizeof(struct cache_object));
 	// HTTP Request
 	if(*message == 'G'){
 		if(d==1)printf("parsing request\n");
-		parseRequest(message, osock);
+		parseRequest(message, b_sock);
 		return;
 	}
 	//HTTP Response
@@ -198,19 +206,27 @@ void parseMessage(char *message, int osock){
 	}
 
 	printf("neither request nor response\n");
+	close(b_sock);
 }
 
-void *handle_connection(void *socket){
-	char *message = (char*)malloc(MAX_HTTP_RESPONSE * sizeof(char));;
-	int sock = (int)socket;
+void getData(int b_sock){
+	printf("reading message.....\n");
 
+	char *message = (char*)malloc(MAX_HTTP_RESPONSE * sizeof(char));
 	int recv_len = 0;
-	if ((recv_len = recv(sock, message, MAX_HTTP_RESPONSE, 0)) < 0) {
+	if ((recv_len = recv(b_sock, message, MAX_HTTP_RESPONSE, 0)) < 0) {
+		printf("rec error\n");
 		perror("Recv error:");
 		return 1;
 	}
-	printf("message: %s\n", message);
-	parseMessage(message, socket);
+	printf("reading message.....: %s len: %d\n", message, recv_len);
+	parseMessage(message, b_sock);
+}
+void *handle_connection(void *b_socket){
+	
+	int b_sock = (int)b_socket;
+	getData(b_sock);
+	
 
 }
 
