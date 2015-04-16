@@ -11,7 +11,7 @@
 #include <signal.h>
 
 
-#define d 2
+#define d 4
 #define MAX_URL 2048
 #define MAX_HTTP_HEADER 8000
 #define MAX_HTTP_MESSAGE 800000
@@ -29,8 +29,8 @@ int maxCacheSize;
 // };
 
 struct cache_object{
-	struct cach_object *next;
-	char ip[IP_LENGTH];
+	struct cache_object *next;
+	char *url;
 	char * data;
 	int size;
 };
@@ -96,7 +96,10 @@ int hostname_to_ip(char *hostname, char *ip)
 }
 
 char * removeHeader(char * info){
+	if(d==4)printf("remove Header info is %s\n", info);
+
 	char *copy = strdup(info);
+	if(d==4)printf("remove Header info is %s\n", info);
 	copy = strstr(copy, "Content-Length: ");
 	copy+=16;
 
@@ -106,11 +109,12 @@ char * removeHeader(char * info){
 			break;
 		}
 	}
-
 	char *size = (char*)malloc(i * sizeof(char));
 	strncpy(size, copy, i-1);
 	size[i-1]='\0';
 	int length = atoi(size);
+	if(d==4)printf("length of message is %d\n", length);
+
 	if(d==2)printf("Content length is %d\n", length);
 
 
@@ -139,14 +143,15 @@ void removeLRU(){
 
 
 }
-void addToCache(char *info, char *ip){
+void addToCache(char *info, char *url){
 	//add ot the end of cache. Then check if we have to remove
-	if(d==3)printf("to add to cache: %s\n", info);
+	if(d==4)printf("to add to cache: %s\n", url);
 	char *trimmedInfo = removeHeader(info);
 	struct cache_object *cob = (struct cache_object*)malloc(sizeof(struct cache_object));
 	cob->data = (char*)malloc(strlen(trimmedInfo) * sizeof(char));
 	cob->next=NULL;
-	strcpy(cob->ip, ip);
+	cob->url = (char*)malloc(sizeof(char) * MAX_URL);
+	strcpy(cob->url, url);
 	cob->size = sizeof(cob);
 	if(cob->size > maxCacheSize){
 		printf("this message can never be stored in the cache b/c it's too big!!!\n");
@@ -174,11 +179,13 @@ void addToCache(char *info, char *ip){
 }
 
 
-int isInCache(char *ip){
+int isInCache(char *url){
 	struct cache_object *current = cache;
 	while(current!=NULL){
-		if(strcmp(ip, current->ip)==0)
+		if(strcmp(url, current->url)==0){
+			if(d==4)printf("found in cache! %s\n", url);
 			return 1;
+		}
 		current = current->next;
 	}
 	return 0;
@@ -195,13 +202,29 @@ void deliverResponse(char *message, int b_sock){
 	getData(b_sock);
 }
 
+char * getURL(char *request){
+	char * request_copy = strdup(request);
+	request_copy+=4;
 
+	int i;
+	for(i=0; i<strlen(request_copy); i++){
+		if(request_copy[i]==' '){
+			break;
+		}
+	}
+
+	char *url = (char*)malloc(i * sizeof(char));
+	strncpy(url, request_copy, i-1);
+	url[i-1]='\0';
+	return url;
+
+}
 
 void fetchContent(char *ip, char* message, int b_sock){
 	int s_sock;
 	struct sockaddr_in server_addr;
 	char reply[MAX_HTTP_RESPONSE];
-	if(d==1)printf("fetching content from ip %s with message %s\n", ip, message);
+	if(d==4)printf("fetching content from ip %s with message %s\n", ip, message);
 	if ((s_sock = socket(AF_INET, SOCK_STREAM/* use tcp */, 0)) < 0) {
 		perror("Create socket error:");
 		return;
@@ -233,8 +256,8 @@ void fetchContent(char *ip, char* message, int b_sock){
 			return;
 		}
 		// reply[recv_len] = 0;
-		if(d==1)printf("Server reply %d:\n%s\n", recv_len, reply);
-		addToCache(reply, ip);
+		if(d==4)printf("Server reply %d:\n%s\n", recv_len, reply);
+		addToCache(reply, getURL(message));
 
 		deliverResponse(reply, b_sock);
 		memset(reply, 0, sizeof(reply));
@@ -264,15 +287,75 @@ char * getHostFromRequest(char *request){
 	return url;
 }
 
+
+
+char * moveToEndOfCache(char *url){
+	struct cache_object *target = NULL;
+	struct cache_object *current = cache;
+	if(d==4)printf("before while loop\n");
+	while(current->next!=NULL){
+		if(d==4)printf("in while once!\n");
+
+		if(strcmp(current->next->url, url)==0){
+			target = current->next;
+			current->next = current->next->next;
+			current = current -> next;
+		}
+	}
+			if(d==4)printf("after while\n");
+
+	current->next = target;
+				if(d==4)printf("after while2\n");
+
+	if(target==NULL){
+		return current->data;
+	}
+	return target->data;
+}
+
+char * addHeaders(char *message){
+	int index=0;
+	char *response = (char*)malloc((MAX_HTTP_HEADER + strlen(message)) * sizeof(char));
+	strcpy(response+index, "HTTP/1.1 200 OK\n");
+	index+=strlen("HTTP/1.1 200 OK\n");
+	strcpy(response+index, "Accept-Ranges: bytes\n");
+	index+=strlen("Accept-Ranges: bytes\n");
+	strcpy(response+index, "Vary: Accept-Encoding\n");
+	index+=strlen("Vary: Accept-Encoding\n");
+	strcpy(response+index, "Content-Encoding: gzip\n");
+	index+=strlen("Content-Encoding: gzip\n");
+
+	int contentLength = strlen(message);
+	char *contentMessage;
+	strcpy(contentMessage, "Content-Length: ");
+	memcpy(contentMessage + strlen("Content-Length: "), strlen(message), strlen(strlen(message)));
+	strcpy(contentMessage + strlen("Content-Length: ") + strlen(strlen(message)), "\n");
+//unsure of whether this will work
+	strcpy(response+index, contentMessage);
+	index+=strlen(contentMessage);
+
+	strcpy(response+index, "Connection: keep-alive\n");
+
+	if(d==4)printf("message with headers: %s\n", message);
+
+
+
+
+}
+
 void parseRequest(char *message, int b_sock){
 	
 	char *url = getHostFromRequest(message);
 	char ip[IP_LENGTH];
 	hostname_to_ip(url, ip);
+	char *targetURL = getURL(message);
 	//info is already in the cache
-	if(isInCache(ip)==1){
+	if(isInCache(targetURL)==1){
 		if(d==1)printf("found in cache!\n");
-		
+		char *targetMessage = moveToEndOfCache(targetURL);
+		char *targetMessageWithHeaders = addHeaders(targetMessage);
+
+
 	}
 	//info is not in cache. Get its IP and then fetch it.
 	else{
