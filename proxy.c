@@ -11,7 +11,7 @@
 #include <signal.h>
 
 
-#define d 4
+#define d 5
 #define MAX_URL 2048
 #define MAX_HTTP_HEADER 8000
 #define MAX_HTTP_MESSAGE 800000
@@ -32,7 +32,6 @@ struct cache_object{
 	struct cache_object *next;
 	char *url;
 	char * data;
-	int size;
 };
 struct cache_object *cache;
 
@@ -95,73 +94,94 @@ int hostname_to_ip(char *hostname, char *ip)
     return 0;
 }
 
-char * removeHeader(char * info){
-	if(d==4)printf("remove Header info is %s\n", info);
-// 
-	// char *copy = strdup(info);
-	// if(d==4)printf("remove Header info is %s\n", info);
-	// copy = strstr(copy, "Content-Length: ");
-	// copy+=16;
+// char * removeHeader(char * info){
+// 	if(d==4)printf("remove Header info is %s\n", info);
+// // 
+// 	// char *copy = strdup(info);
+// 	// if(d==4)printf("remove Header info is %s\n", info);
+// 	// copy = strstr(copy, "Content-Length: ");
+// 	// copy+=16;
 
-	// int i;
-	// for(i=0; i<strlen(copy); i++){
-	// 	if(copy[i]=='\n'){
-	// 		break;
-	// 	}
-	// }
-	// char *size = (char*)malloc(i * sizeof(char));
-	// strncpy(size, copy, i-1);
-	// size[i-1]='\0';
-	// int length = atoi(size);
-	// if(d==4)printf("length of message is %d\n", length);
+// 	// int i;
+// 	// for(i=0; i<strlen(copy); i++){
+// 	// 	if(copy[i]=='\n'){
+// 	// 		break;
+// 	// 	}
+// 	// }
+// 	// char *size = (char*)malloc(i * sizeof(char));
+// 	// strncpy(size, copy, i-1);
+// 	// size[i-1]='\0';
+// 	// int length = atoi(size);
+// 	// if(d==4)printf("length of message is %d\n", length);
 
-	// if(d==2)printf("Content length is %d\n", length);
-
-
+// 	// if(d==2)printf("Content length is %d\n", length);
 
 
-	char *httpbody = strstr(info, "\r\n\r\n");
-	httpbody+=4;
-
-	char *httpbody2 = (char*)malloc(strlen(httpbody) * sizeof(char));
-	strcpy(httpbody2, httpbody);
-	return httpbody2;
 
 
+// 	char *httpbody = strstr(info, "\r\n\r\n");
+// 	httpbody+=4;
+
+// 	char *httpbody2 = (char*)malloc(strlen(httpbody) * sizeof(char));
+// 	strcpy(httpbody2, httpbody);
+// 	return httpbody2;
+
+
+// }
+
+int getSize(struct cache_object *cob){
+	int size = 0;
+	size+=sizeof(cob->next);
+	size+=strlen(cob->url);
+	size+=strlen(cob->data);
+	return size;
 }
 void removeLRU(){
+	if(d==5)printf("removing LRU\n");
 	if(cache->next==NULL){
-		cacheSize+=cache->size;
+		cacheSize+=getSize(cache);
 		free(cache);
 		cache=NULL;
 		return;
 	}
 
-	cacheSize+=cache->size;
+	cacheSize+=getSize(cache);
 	cache = cache->next;
+	if(d==5)printf("new cache has %d space\n", cacheSize);
 
 
 }
+
+void createNewObject(struct cache_object *newObject, char * url, char * data, struct cacheObject *next){
+	newObject->data = (char*)malloc(strlen(data) * sizeof(char));
+	strcpy(newObject->data, data);
+	newObject->next=next;
+	newObject->url = (char*)malloc(sizeof(char) * MAX_URL);
+	strcpy(newObject->url, url);
+}
+
 void addToCache(char *info, char *url){
 	//add ot the end of cache. Then check if we have to remove
-	if(d==4)printf("to add to cache: %s\n", url);
-	char *trimmedInfo = removeHeader(info);
+	if(d==5)printf("to add to cache: %s\n", url);
+	// char *trimmedInfo = removeHeader(info);
 	struct cache_object *cob = (struct cache_object*)malloc(sizeof(struct cache_object));
-	cob->data = (char*)malloc(strlen(trimmedInfo) * sizeof(char));
-	cob->next=NULL;
-	cob->url = (char*)malloc(sizeof(char) * MAX_URL);
-	strcpy(cob->url, url);
-	cob->size = sizeof(cob);
-	if(cob->size > maxCacheSize){
+	createNewObject(cob, url, info, NULL);
+	// cob->data = (char*)malloc(strlen(info) * sizeof(char));
+	// strcpy(cob->data, info);
+	// cob->next=NULL;
+	// cob->url = (char*)malloc(sizeof(char) * MAX_URL);
+	// strcpy(cob->url, url);
+	if(getSize(cob) > maxCacheSize){
 		printf("this message can never be stored in the cache b/c it's too big!!!\n");
 		free(cob);
 		return;
 	}
 
-	cacheSize-=cob->size;
+	cacheSize-=getSize(cob);
+	if(d==5)printf("cache size is now %d\n", cacheSize);
 
 	while(cacheSize<0){
-		printf("gotta make %d more room for this big boy\n", cacheSize*-1);
+		if(d==5)printf("gotta make %d more room for this big boy\n", cacheSize*-1);
 		removeLRU();
 	}
 	if(cache==NULL){
@@ -182,7 +202,7 @@ int isInCache(char *url){
 	struct cache_object *current = cache;
 	while(current!=NULL){
 		if(strcmp(url, current->url)==0){
-			if(d==4)printf("found in cache! %s\n", url);
+			if(d==5)printf("found in cache! %s\n", url);
 			return 1;
 		}
 		current = current->next;
@@ -289,60 +309,68 @@ char * getHostFromRequest(char *request){
 
 
 
+
+
 char * moveToEndOfCache(char *url){
-	struct cache_object *target = NULL;
+	struct cache_object *target=NULL;
+
 	struct cache_object *current = cache;
-	if(d==4)printf("before while loop\n");
+	if(d==5)printf("before while loop\n");
 	while(current->next!=NULL){
-		if(d==4)printf("in while once!\n");
+		if(d==5)printf("in while once!\n");
 
 		if(strcmp(current->next->url, url)==0){
-			target = current->next;
+			target = (struct cache_object*)malloc(sizeof(struct cache_object));
+
+			createNewObject(target, current->next->url, current->next->data, NULL);
 			current->next = current->next->next;
 		}
 		current = current -> next;
 
 	}
-			if(d==4)printf("after while\n");
+			if(d==5)printf("after while\n");
 
 	current->next = target;
-				if(d==4)printf("after while2\n");
+				if(d==5)printf("after while2\n");
 
 	if(target==NULL){
-		return current->data;
+		if(d==5)printf("found in cache as first item! url is: %s\n", cache->url);
+		return cache->data;
 	}
+	if(d==5)printf("found in cache! url is: %s\n", target->url);
+
 	return target->data;
 }
 
-char * addHeaders(char *message){
-	int index=0;
-	char *response = (char*)malloc((MAX_HTTP_HEADER + strlen(message)) * sizeof(char));
-	strcpy(response+index, "HTTP/1.1 200 OK\n");
-	index+=strlen("HTTP/1.1 200 OK\n");
-	strcpy(response+index, "Accept-Ranges: bytes\n");
-	index+=strlen("Accept-Ranges: bytes\n");
-	strcpy(response+index, "Vary: Accept-Encoding\n");
-	index+=strlen("Vary: Accept-Encoding\n");
-	strcpy(response+index, "Content-Encoding: gzip\n");
-	index+=strlen("Content-Encoding: gzip\n");
+// char * addHeaders(char *message){
+// 	int index=0;
+// 	char *response = (char*)malloc((MAX_HTTP_HEADER + strlen(message)) * sizeof(char));
+// 	strcpy(response+index, "HTTP/1.1 200 OK\n");
+// 	index+=strlen("HTTP/1.1 200 OK\n");
+// 	strcpy(response+index, "Accept-Ranges: bytes\n");
+// 	index+=strlen("Accept-Ranges: bytes\n");
+// 	strcpy(response+index, "Vary: Accept-Encoding\n");
+// 	index+=strlen("Vary: Accept-Encoding\n");
+// 	strcpy(response+index, "Content-Encoding: gzip\n");
+// 	index+=strlen("Content-Encoding: gzip\n");
 
-	int contentLength = strlen(message);
-	char *contentMessage;
-	strcpy(contentMessage, "Content-Length: ");
-	memcpy(contentMessage + strlen("Content-Length: "), strlen(message), strlen(strlen(message)));
-	strcpy(contentMessage + strlen("Content-Length: ") + strlen(strlen(message)), "\n");
-//unsure of whether this will work
-	strcpy(response+index, contentMessage);
-	index+=strlen(contentMessage);
+// 	int contentLength = strlen(message);
+// 	char *contentMessage;
+// 	strcpy(contentMessage, "Content-Length: ");
+// 	memcpy(contentMessage + strlen("Content-Length: "), strlen(message), strlen(strlen(message)));
+// 	strcpy(contentMessage + strlen("Content-Length: ") + strlen(strlen(message)), "\n");
+// //unsure of whether this will work
+// 	strcpy(response+index, contentMessage);
+// 	index+=strlen(contentMessage);
 
-	strcpy(response+index, "Connection: keep-alive\n");
+// 	strcpy(response+index, "Connection: keep-alive\n");
 
-	if(d==4)printf("message with headers: %s\n", message);
-
-
+// 	if(d==4)printf("message with headers: %s\n", message);
 
 
-}
+
+
+// }
 
 void parseRequest(char *message, int b_sock){
 	
@@ -352,9 +380,10 @@ void parseRequest(char *message, int b_sock){
 	char *targetURL = getURL(message);
 	//info is already in the cache
 	if(isInCache(targetURL)==1){
-		if(d==1)printf("found in cache!\n");
+		if(d==5)printf("found in cache!\n");
 		char *targetMessage = moveToEndOfCache(targetURL);
-		char *targetMessageWithHeaders = addHeaders(targetMessage);
+		// char *targetMessageWithHeaders = addHeaders(targetMessage);
+		deliverResponse(targetMessage, b_sock, NULL);
 
 
 	}
