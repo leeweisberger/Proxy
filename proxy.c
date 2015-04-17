@@ -97,35 +97,34 @@ int hostname_to_ip(char *hostname, char *ip)
 
 char * removeHeader(char * info){
 	if(d==4)printf("remove Header info is %s\n", info);
+// 
+	// char *copy = strdup(info);
+	// if(d==4)printf("remove Header info is %s\n", info);
+	// copy = strstr(copy, "Content-Length: ");
+	// copy+=16;
 
-	char *copy = strdup(info);
-	if(d==4)printf("remove Header info is %s\n", info);
-	copy = strstr(copy, "Content-Length: ");
-	copy+=16;
+	// int i;
+	// for(i=0; i<strlen(copy); i++){
+	// 	if(copy[i]=='\n'){
+	// 		break;
+	// 	}
+	// }
+	// char *size = (char*)malloc(i * sizeof(char));
+	// strncpy(size, copy, i-1);
+	// size[i-1]='\0';
+	// int length = atoi(size);
+	// if(d==4)printf("length of message is %d\n", length);
 
-	int i;
-	for(i=0; i<strlen(copy); i++){
-		if(copy[i]=='\n'){
-			break;
-		}
-	}
-	char *size = (char*)malloc(i * sizeof(char));
-	strncpy(size, copy, i-1);
-	size[i-1]='\0';
-	int length = atoi(size);
-	if(d==4)printf("length of message is %d\n", length);
-
-	if(d==2)printf("Content length is %d\n", length);
-
-
+	// if(d==2)printf("Content length is %d\n", length);
 
 
-	char *httpbody = (char*)malloc(strlen(info) * sizeof(char));
-	httpbody = strstr(info, "\r\n\r\n");
+
+
+	char *httpbody = strstr(info, "\r\n\r\n");
 	httpbody+=4;
 
-	char *httpbody2 = (char*)malloc(length * sizeof(char));
-	strncpy(httpbody2, httpbody, length);
+	char *httpbody2 = (char*)malloc(strlen(httpbody) * sizeof(char));
+	strcpy(httpbody2, httpbody);
 	return httpbody2;
 
 
@@ -191,7 +190,7 @@ int isInCache(char *url){
 	return 0;
 }
 
-void deliverResponse(char *message, int b_sock){
+void deliverResponse(char *message, int b_sock, int s_sock){
 	if (send(b_sock, message, MAX_HTTP_RESPONSE, 0) < 0) {
 		perror("Send error:");
 		return 1;
@@ -199,7 +198,7 @@ void deliverResponse(char *message, int b_sock){
 
 	if(d==1)printf("response Delivered\n");
 	
-	getData(b_sock);
+	getData(b_sock, s_sock);
 }
 
 char * getURL(char *request){
@@ -223,7 +222,8 @@ char * getURL(char *request){
 void fetchContent(char *ip, char* message, int b_sock){
 	int s_sock;
 	struct sockaddr_in server_addr;
-	char reply[MAX_HTTP_RESPONSE];
+	char *reply = (char*)malloc(MAX_HTTP_RESPONSE * sizeof(char));
+
 	if(d==4)printf("fetching content from ip %s with message %s\n", ip, message);
 	if ((s_sock = socket(AF_INET, SOCK_STREAM/* use tcp */, 0)) < 0) {
 		perror("Create socket error:");
@@ -259,7 +259,7 @@ void fetchContent(char *ip, char* message, int b_sock){
 		if(d==4)printf("Server reply %d:\n%s\n", recv_len, reply);
 		addToCache(reply, getURL(message));
 
-		deliverResponse(reply, b_sock);
+		deliverResponse(reply, b_sock, s_sock);
 		memset(reply, 0, sizeof(reply));
 
 }
@@ -299,8 +299,9 @@ char * moveToEndOfCache(char *url){
 		if(strcmp(current->next->url, url)==0){
 			target = current->next;
 			current->next = current->next->next;
-			current = current -> next;
 		}
+		current = current -> next;
+
 	}
 			if(d==4)printf("after while\n");
 
@@ -385,14 +386,17 @@ void parseMessage(char *message, int b_sock){
 	close(b_sock);
 }
 
-void getData(int b_sock){
+void getData(int b_sock, int s_sock){
 	if(d==1)printf("reading message.....\n");
 
 	char *message = (char*)malloc(MAX_HTTP_RESPONSE * sizeof(char));
 	int recv_len = 0;
 	if ((recv_len = recv(b_sock, message, MAX_HTTP_RESPONSE, 0)) < 0) {
-		printf("rec error\n");
+		printf("rec error closing both sockets\n");
+		close(b_sock);
+		if(s_sock!=NULL)close(s_sock);
 		perror("Recv error:");
+
 		return 1;
 	}
 	if(d==1)printf("reading message.....: %s len: %d\n", message, recv_len);
@@ -401,7 +405,7 @@ void getData(int b_sock){
 void *handle_connection(void *b_socket){
 	
 	int b_sock = (int)b_socket;
-	getData(b_sock);
+	getData(b_sock, NULL);
 	
 
 }
