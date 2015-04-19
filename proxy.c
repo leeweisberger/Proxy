@@ -23,10 +23,8 @@
 int cacheSize;
 int maxCacheSize;
 
-// struct connection_object{
-// 	int socket;
-// 	int 
-// };
+void getData(int b_sock, int s_sock);
+
 
 struct cache_object{
 	struct cache_object *next;
@@ -61,6 +59,7 @@ int main(int argc, char ** argv){
 	cache = NULL;
 	// cache->next=NULL;
 	signal(SIGPIPE, SIG_IGN);
+
 	return listenOnPort(port);
 	return 0;
 }
@@ -140,7 +139,6 @@ void removeLRU(){
 	if(d==5)printf("removing LRU\n");
 	if(cache->next==NULL){
 		cacheSize+=getSize(cache);
-		free(cache);
 		cache=NULL;
 		return;
 	}
@@ -152,7 +150,7 @@ void removeLRU(){
 
 }
 
-void createNewObject(struct cache_object *newObject, char * url, char * data, struct cacheObject *next){
+void createNewObject(struct cache_object *newObject, char * url, char * data, struct cache_object *next){
 	newObject->data = (char*)malloc(strlen(data) * sizeof(char));
 	strcpy(newObject->data, data);
 	newObject->next=next;
@@ -166,13 +164,10 @@ void addToCache(char *info, char *url){
 	// char *trimmedInfo = removeHeader(info);
 	struct cache_object *cob = (struct cache_object*)malloc(sizeof(struct cache_object));
 	createNewObject(cob, url, info, NULL);
-	// cob->data = (char*)malloc(strlen(info) * sizeof(char));
-	// strcpy(cob->data, info);
-	// cob->next=NULL;
-	// cob->url = (char*)malloc(sizeof(char) * MAX_URL);
-	// strcpy(cob->url, url);
 	if(getSize(cob) > maxCacheSize){
 		printf("this message can never be stored in the cache b/c it's too big!!!\n");
+		free(cob->data);
+		free(cob->url);
 		free(cob);
 		return;
 	}
@@ -193,8 +188,6 @@ void addToCache(char *info, char *url){
 		current=current->next;
 	}
 	current->next = cob;
-
-
 }
 
 
@@ -213,11 +206,11 @@ int isInCache(char *url){
 void deliverResponse(char *message, int b_sock, int s_sock){
 	if (send(b_sock, message, MAX_HTTP_RESPONSE, 0) < 0) {
 		perror("Send error:");
-		return 1;
+		deliverResponse(message, b_sock, s_sock);
+		return;
 	}
 
 	if(d==1)printf("response Delivered\n");
-	
 	getData(b_sock, s_sock);
 }
 
@@ -257,34 +250,29 @@ void fetchContent(char *ip, char* message, int b_sock){
 
 	if (connect(s_sock, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
 		perror("Connect error:");
+		close(s_sock);
 		return;
 	}
 	if(d==1)printf("connected\n");
 
 	if (send(s_sock, message, MAX_HTTP_REQUEST, 0) < 0) {
 			perror("Send error:");
+			close(s_sock);
 			return;
 		}
 		int recv_len = read(s_sock, reply, MAX_HTTP_RESPONSE);
-		if (recv_len < 0) {
+		if (recv_len <= 0) {
 			perror("Recv error:");
-			return;
-		}
-		if(recv_len==0){
 			close(s_sock);
 			fetchContent(ip, message, b_sock);
 			return;
 		}
 		// reply[recv_len] = 0;
-		if(d==4)printf("Server reply %d:\n%s\n", recv_len, reply);
+		if(d==5)printf("Server reply %d:\n%s\n", recv_len, reply);
 		addToCache(reply, getURL(message));
 
 		deliverResponse(reply, b_sock, s_sock);
 		memset(reply, 0, sizeof(reply));
-
-}
-
-void parseResponse(char *message){
 
 }
 
@@ -317,14 +305,17 @@ char * moveToEndOfCache(char *url){
 	struct cache_object *current = cache;
 	if(d==5)printf("before while loop\n");
 	while(current->next!=NULL){
-		if(d==5)printf("in while once!\n");
+		if(d==5)printf("in while once! url: %s\n", current->next->url);
 
 		if(strcmp(current->next->url, url)==0){
+			if(d==5)printf("boom found in cache set to target\n");
 			target = (struct cache_object*)malloc(sizeof(struct cache_object));
-
+			struct cache_object *old = current->next;
 			createNewObject(target, current->next->url, current->next->data, NULL);
 			current->next = current->next->next;
+			// free(old);
 		}
+		if(current->next==NULL)break;
 		current = current -> next;
 
 	}
@@ -383,7 +374,8 @@ void parseRequest(char *message, int b_sock){
 		if(d==5)printf("found in cache!\n");
 		char *targetMessage = moveToEndOfCache(targetURL);
 		// char *targetMessageWithHeaders = addHeaders(targetMessage);
-		deliverResponse(targetMessage, b_sock, NULL);
+		deliverResponse(targetMessage, b_sock, 0);
+
 
 
 	}
@@ -398,16 +390,10 @@ void parseRequest(char *message, int b_sock){
 void parseMessage(char *message, int b_sock){
 	// struct cache_object *cob = (struct cache_object*)malloc(sizeof(struct cache_object));
 	// HTTP Request
-	if(*message == 'G'){
-		if(d==1)printf("parsing request\n");
-		parseRequest(message, b_sock);
-		return;
-	}
-	//HTTP Response
-	if(*message == 'H'){
-		if(d==1)printf("parsing response\n");
 
-		parseResponse(message);
+	if(*message == 'G'){
+		if(d==5)printf("parsing request\n");
+		parseRequest(message, b_sock);
 		return;
 	}
 
@@ -423,21 +409,22 @@ void getData(int b_sock, int s_sock){
 	if ((recv_len = recv(b_sock, message, MAX_HTTP_RESPONSE, 0)) < 0) {
 		printf("rec error closing both sockets\n");
 		close(b_sock);
-		if(s_sock!=NULL)close(s_sock);
+		if(s_sock!=0)close(s_sock);
 		perror("Recv error:");
 
-		return 1;
+		return;
 	}
 	if(d==1)printf("reading message.....: %s len: %d\n", message, recv_len);
 	parseMessage(message, b_sock);
 }
 void *handle_connection(void *b_socket){
 	
-	int b_sock = (int)b_socket;
-	getData(b_sock, NULL);
+	int b_sock = (intptr_t)b_socket;
+	getData(b_sock, 0);
 	
 
 }
+
 
 int listenOnPort(int port){
 	int sock; int new_sock;
@@ -469,16 +456,13 @@ int listenOnPort(int port){
 	while(1){
 		if ((new_sock = accept(sock, (struct sockaddr*)&sin, &len))<0){
 			perror("Accept connection");
-			return 1;
+			continue;
 		}
 		if(d==1)printf("accepted connection!\n");
 
 		pthread_t conn_thread;
-		pthread_create(&conn_thread, NULL, handle_connection, (void*)new_sock);
+		pthread_create(&conn_thread, NULL, handle_connection, (void*)(intptr_t)new_sock);
 	}
-
-
 	return 0;
-
 }
 
