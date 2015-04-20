@@ -209,6 +209,16 @@ int isInCache(char *url){
 	return 0;
 }
 
+void deliverResponse2(struct cache_object *object, int b_sock){
+	if (write(b_sock, object->data, object->dataSize) < 0) {
+		perror("Send error:");
+		// deliverResponse(message, b_sock, s_sock);
+		return;
+	}
+
+	if(d==5)printf("response Delivered\n");
+	getData(b_sock, 0);
+}
 void deliverResponse(char *message, int size, int b_sock, int s_sock){
 	if (write(b_sock, message, size) < 0) {
 		perror("Send error:");
@@ -351,11 +361,7 @@ char * getHostFromRequest(char *request){
 	return url;
 }
 
-
-
-
-
-char * moveToEndOfCache(char *url){
+struct cache_object* moveToEndOfCache(char *url){
 	struct cache_object *target=NULL;
 
 	struct cache_object *current = cache;
@@ -382,11 +388,11 @@ char * moveToEndOfCache(char *url){
 
 	if(target==NULL){
 		if(d==5)printf("found in cache as first item! url is: %s\n", cache->url);
-		return cache->data;
+		return cache;
 	}
 	if(d==5)printf("found in cache! url is: %s\n", target->url);
 
-	return target->data;
+	return target;
 }
 
 // char * addHeaders(char *message){
@@ -428,9 +434,10 @@ void parseRequest(char *message, int req_size, int b_sock){
 	//info is already in the cache
 	if(isInCache(targetURL)==1){
 		if(d==5)printf("found in cache!\n");
-		char *targetMessage = moveToEndOfCache(targetURL);
+		struct cache_object *targetObject = moveToEndOfCache(targetURL);
 		// char *targetMessageWithHeaders = addHeaders(targetMessage);
-		deliverResponse(targetMessage, strlen(targetMessage), b_sock, 0);
+		// deliverResponse(targetMessage, strlen(targetMessage), b_sock, 0);
+		deliverResponse2(targetObject, b_sock);
 
 
 
